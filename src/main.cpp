@@ -1,12 +1,19 @@
 #include <fstream>
 
-void WriteToFile(const std::string& jsonString, const std::string& filename) {
-	std::ofstream outFile(filename);
+void WriteToFile(const std::string& a_json, const std::string& a_filename) {
+	std::ofstream outFile(a_filename);
 	if (!outFile.is_open())
 		return;
 
-	outFile << jsonString;
+	outFile << a_json;
 	outFile.close();
+}
+
+std::string GetIndent(std::uint32_t a_indentLevel = 1) {
+	std::string indent;
+	for (std::uint32_t ii = 0; ii < a_indentLevel; ii++)
+		indent += "\t";
+	return indent;
 }
 
 std::string GetCurrentTimeString() {
@@ -22,37 +29,159 @@ std::string GetCurrentTimeString() {
 	return oss.str();
 }
 
-void PrintForm(std::ostringstream& oss, RE::TESForm* a_form, std::uint32_t a_indent, bool a_comma, bool a_newLine) {
-	std::string indent;
-	for (std::uint32_t ii = 0; ii < a_indent; ii++)
-		indent += "\t";
+void PrintForm(std::ostringstream& a_oss, RE::TESForm* a_form, std::uint32_t a_indentLevel, bool a_comma) {
+	std::string indent = GetIndent(a_indentLevel);
 
-	oss << indent << "\"EditorID\": \"" << a_form->GetFormEditorID() << "\",\n"
+	a_oss << indent << "\"EditorID\": \"" << a_form->GetFormEditorID() << "\",\n"
 		<< indent << "\"Plugin\": \"" << a_form->sourceFiles.array->front()->filename << "\",\n"
 		<< indent << "\"FormID\": \"" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << a_form->formID << "\"";
-	oss << std::dec << std::nouppercase;
+	a_oss << std::dec << std::nouppercase;
 
 	if (a_comma)
-		oss << ",";
+		a_oss << ",";
 
-	if (a_newLine)
-		oss << "\n";
+	a_oss << "\n";
 }
 
-void PrintEntry(std::ostringstream& oss, RE::LEVELED_OBJECT* a_entry, std::uint32_t a_indent) {
-	std::string indent;
-	for (std::uint32_t ii = 0; ii < a_indent; ii++)
-		indent += "\t";
+void PrintLeveledListEntry(std::ostringstream& a_oss, RE::LEVELED_OBJECT* a_entry, std::uint32_t a_indentLevel, bool a_comma) {
+	std::string indent = GetIndent(a_indentLevel);
 
-	oss << indent << "{\n"
-		<< indent << "\t\"Level\": " << static_cast<std::uint32_t>(a_entry->level) << ",\n"
-		<< indent << "\t\"Reference\": {\n";
-	PrintForm(oss, a_entry->form, a_indent + 2, false, true);
-	oss << indent << "\t},\n"
-		<< indent << "\t\"Count\": " << a_entry->count << ",\n"
-		<< indent << "\t\"ChanceNone\": " << static_cast<std::uint32_t>(a_entry->chanceNone) << "\n";
+	a_oss << indent << "{\n"
+		<< indent << GetIndent() << "\"Level\": " << static_cast<std::uint32_t>(a_entry->level) << ",\n"
+		<< indent << GetIndent() << "\"Reference\": {\n";
 
-	oss << indent << "}";
+	PrintForm(a_oss, a_entry->form, a_indentLevel + 2, false);
+
+	a_oss << indent << GetIndent() << "},\n"
+		<< indent << GetIndent() << "\"Count\": " << a_entry->count << ",\n"
+		<< indent << GetIndent() << "\"ChanceNone\": " << static_cast<std::uint32_t>(a_entry->chanceNone) << "\n";
+
+	a_oss << indent << "}";
+
+	if (a_comma)
+		a_oss << ",";
+
+	a_oss << "\n";
+}
+
+void PrintLeveledList(std::ostringstream& a_oss, RE::TESForm* a_levForm, std::uint32_t a_indentLevel, bool a_comma) {
+	RE::TESLeveledList* levList = a_levForm->As<RE::TESLeveledList>();
+	if (!levList)
+		return;
+
+	std::string indent = GetIndent(a_indentLevel);
+
+	a_oss << indent << "{\n";
+
+	PrintForm(a_oss, a_levForm, a_indentLevel + 1, true);
+
+	a_oss << indent << GetIndent() << "\"ChanceNone\": " << static_cast<std::uint32_t>(levList->chanceNone) << ",\n";
+	a_oss << indent << GetIndent() << "\"MaxCount\": " << static_cast<std::uint32_t>(levList->maxUseAllCount) << ",\n";
+
+	a_oss << indent << GetIndent() << "\"Flags\": [\n";
+	for (std::uint8_t ii = 1; ii < 8; ii *= 2) {
+		if (!(levList->llFlags & ii))
+			continue;
+
+		std::string_view flagStr;
+
+		switch (ii) {
+		case 0x1:
+			flagStr = "Calculate from all levels <= player's level";
+			break;
+		case 0x2:
+			flagStr = "Calculate for each item in count";
+			break;
+		case 0x4:
+			flagStr = "Use All";
+			break;
+		case 0x8:
+			flagStr = "Unknown 3";
+			break;
+		case 0x10:
+			flagStr = "Unknown 4";
+			break;
+		case 0x20:
+			flagStr = "Unknown 5";
+			break;
+		case 0x40:
+			flagStr = "Unknown 6";
+			break;
+		case 0x80:
+			flagStr = "Unknown 7";
+			break;
+		}
+
+		a_oss << indent << GetIndent(2) << "\"" << flagStr << "\"";
+
+		if (levList->llFlags > ii * 2)
+			a_oss << ",";
+
+		a_oss << "\n";
+	}
+	a_oss << indent << GetIndent() << "],\n";
+
+	if (levList->chanceGlobal) {
+		a_oss << indent << GetIndent() << "\"UseGlobal\": {\n";
+		PrintForm(a_oss, levList->chanceGlobal, a_indentLevel + 2, false);
+		a_oss << indent << GetIndent() << "},\n";
+	}
+
+	a_oss << indent << GetIndent() << "\"BaseEntryCount\": " << static_cast<std::uint32_t>(levList->baseListCount) << ",\n"
+		<< indent << GetIndent() << "\"BaseEntries\": [\n";
+	for (std::uint32_t ii = 0; ii < static_cast<std::uint32_t>(levList->baseListCount); ii++) {
+		if (ii < static_cast<std::uint32_t>(levList->baseListCount) - 1)
+			PrintLeveledListEntry(a_oss, &levList->leveledLists[ii], a_indentLevel + 2, true);
+		else
+			PrintLeveledListEntry(a_oss, &levList->leveledLists[ii], a_indentLevel + 2, false);
+	}
+	a_oss << indent << GetIndent() << "],\n"
+		<< indent << GetIndent() << "\"ScriptAddedEntryCount\": " << static_cast<std::uint32_t>(levList->scriptListCount) << ",\n"
+		<< indent << GetIndent() << "\"ScriptAddedEntries\": [\n";
+	for (std::uint32_t ii = 0; ii < static_cast<std::uint32_t>(levList->scriptListCount); ii++) {
+		if (ii < static_cast<std::uint32_t>(levList->scriptListCount) - 1)
+			PrintLeveledListEntry(a_oss, levList->scriptAddedLists[ii], a_indentLevel + 2, true);
+		else
+			PrintLeveledListEntry(a_oss, levList->scriptAddedLists[ii], a_indentLevel + 2, false);
+	}
+	a_oss << indent << GetIndent() << "]\n"
+		<< indent << "}";
+
+	if (a_comma)
+		a_oss << ",";
+
+	a_oss << "\n";
+}
+
+void PrintFormList(std::ostringstream& a_oss, RE::TESForm* a_frmListForm, std::uint32_t a_indentLevel, bool a_comma) {
+	RE::BGSListForm* frmList = a_frmListForm->As<RE::BGSListForm>();
+	if (!frmList)
+		return;
+
+	std::string indent = GetIndent(a_indentLevel);
+
+	a_oss << indent << "{\n";
+
+	PrintForm(a_oss, a_frmListForm, a_indentLevel + 1, true);
+
+	a_oss << indent << GetIndent() << "\"FormCount\": " << frmList->arrayOfForms.size() << ",\n"
+		<< indent << GetIndent() << "\"Forms\": [\n";
+	for (std::uint32_t ii = 0; ii < frmList->arrayOfForms.size(); ii++) {
+		a_oss << indent << GetIndent(2) << "{\n";
+		PrintForm(a_oss, frmList->arrayOfForms[ii], a_indentLevel + 3, false);
+		a_oss << indent << GetIndent(2) << "}";
+		if (ii < frmList->arrayOfForms.size() - 1)
+			a_oss << ",";
+		a_oss << "\n";
+	}
+	a_oss << indent << GetIndent() << "]\n"
+		<< indent << "}";
+
+	if (a_comma)
+		a_oss << ",";
+
+	a_oss << "\n";
+
 }
 
 void Dump(std::monostate, RE::TESForm* a_form) {
@@ -61,37 +190,16 @@ void Dump(std::monostate, RE::TESForm* a_form) {
 		return;
 	}
 
-	RE::TESLeveledList* leveledList = a_form->As<RE::TESLeveledList>();
-	if (!leveledList) {
-		RE::ConsoleLog::GetSingleton()->PrintLine("Form is not a leveled list.");
-		return;
-	}
-
 	std::ostringstream oss;
 
-	oss << "{\n";
-
-	PrintForm(oss, a_form, 1, true, true);
-
-	oss << "\t\"BaseEntries\": [\n";
-	for (std::uint32_t ii = 0; ii < static_cast<std::uint32_t>(leveledList->baseListCount); ii++) {
-		PrintEntry(oss, &leveledList->leveledLists[ii], 2);
-		if (ii < static_cast<std::uint32_t>(leveledList->baseListCount) - 1)
-			oss << ",";
-		oss << "\n";
+	if (a_form->formType == RE::ENUM_FORM_ID::kLVLI || a_form->formType == RE::ENUM_FORM_ID::kLVLN || a_form->formType == RE::ENUM_FORM_ID::kLVSP)
+		PrintLeveledList(oss, a_form, 0, false);
+	else if (a_form->formType == RE::ENUM_FORM_ID::kFLST)
+		PrintFormList(oss, a_form, 0, false);
+	else {
+		RE::ConsoleLog::GetSingleton()->PrintLine("Form is not a Leveled List or a FormID List.");
+		return;
 	}
-	oss << "\t],\n";
-
-	oss << "\t\"ScriptAddedEntries\": [\n";
-	for (std::uint32_t ii = 0; ii < static_cast<std::uint32_t>(leveledList->scriptListCount); ii++) {
-		PrintEntry(oss, leveledList->scriptAddedLists[ii], 2);
-		if (ii < static_cast<std::uint32_t>(leveledList->scriptListCount) - 1)
-			oss << ",";
-		oss << "\n";
-	}
-	oss << "\t]\n";
-
-	oss << "}\n";
 
 	std::string filePath = "Data\\F4SE\\Plugins\\LLDumper\\LLDump_" + GetCurrentTimeString() + ".json";
 
